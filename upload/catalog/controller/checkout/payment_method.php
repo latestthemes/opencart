@@ -1,52 +1,54 @@
 <?php
-class ControllerCheckoutPaymentMethod extends Controller {
-	public function index() {
+namespace Opencart\Catalog\Controller\Checkout;
+class PaymentMethod extends \Opencart\System\Engine\Controller {
+	public function index(): void {
 		$this->load->language('checkout/checkout');
 
 		if (isset($this->session->data['payment_address'])) {
 			// Totals
-			$total_data = array();
-			$total = 0;
+			$totals = [];
 			$taxes = $this->cart->getTaxes();
+			$total = 0;
 
-			$this->load->model('extension/extension');
+			$this->load->model('setting/extension');
 
-			$sort_order = array();
+			$sort_order = [];
 
-			$results = $this->model_extension_extension->getExtensions('total');
+			$results = $this->model_setting_extension->getExtensionsByType('total');
 
 			foreach ($results as $key => $value) {
-				$sort_order[$key] = $this->config->get($value['code'] . '_sort_order');
+				$sort_order[$key] = $this->config->get('total_' . $value['code'] . '_sort_order');
 			}
 
 			array_multisort($sort_order, SORT_ASC, $results);
 
 			foreach ($results as $result) {
-				if ($this->config->get($result['code'] . '_status')) {
-					$this->load->model('total/' . $result['code']);
+				if ($this->config->get('total_' . $result['code'] . '_status')) {
+					$this->load->model('extension/' . $result['extension'] . '/total/' . $result['code']);
 
-					$this->{'model_total_' . $result['code']}->getTotal($total_data, $total, $taxes);
+					// __call can not pass-by-reference so we get PHP to call it as an anonymous function.
+					($this->{'model_extension_' . $result['extension'] . '_total_' . $result['code']}->getTotal)($totals, $taxes, $total);
 				}
 			}
 
 			// Payment Methods
-			$method_data = array();
+			$method_data = [];
 
-			$this->load->model('extension/extension');
+			$this->load->model('setting/extension');
 
-			$results = $this->model_extension_extension->getExtensions('payment');
+			$results = $this->model_setting_extension->getExtensionsByType('payment');
 
 			$recurring = $this->cart->hasRecurringProducts();
 
 			foreach ($results as $result) {
-				if ($this->config->get($result['code'] . '_status')) {
-					$this->load->model('payment/' . $result['code']);
+				if ($this->config->get('payment_' . $result['code'] . '_status')) {
+					$this->load->model('extension/' . $result['extension'] . '/payment/' . $result['code']);
 
-					$method = $this->{'model_payment_' . $result['code']}->getMethod($this->session->data['payment_address'], $total);
+					$method = $this->{'model_extension_' . $result['extension'] . '_payment_' . $result['code']}->getMethod($this->session->data['payment_address'], $total);
 
 					if ($method) {
 						if ($recurring) {
-							if (method_exists($this->{'model_payment_' . $result['code']}, 'recurringPayments') && $this->{'model_payment_' . $result['code']}->recurringPayments()) {
+							if (property_exists($this->{'model_extension_' . $result['extension'] . '_payment_' . $result['code']}, 'recurringPayments') && $this->{'model_extension_' . $result['extension'] . '_payment_' . $result['code']}->recurringPayments()) {
 								$method_data[$result['code']] = $method;
 							}
 						} else {
@@ -56,7 +58,7 @@ class ControllerCheckoutPaymentMethod extends Controller {
 				}
 			}
 
-			$sort_order = array();
+			$sort_order = [];
 
 			foreach ($method_data as $key => $value) {
 				$sort_order[$key] = $value['sort_order'];
@@ -67,14 +69,8 @@ class ControllerCheckoutPaymentMethod extends Controller {
 			$this->session->data['payment_methods'] = $method_data;
 		}
 
-		$data['text_payment_method'] = $this->language->get('text_payment_method');
-		$data['text_comments'] = $this->language->get('text_comments');
-		$data['text_loading'] = $this->language->get('text_loading');
-
-		$data['button_continue'] = $this->language->get('button_continue');
-
 		if (empty($this->session->data['payment_methods'])) {
-			$data['error_warning'] = sprintf($this->language->get('error_no_payment'), $this->url->link('information/contact'));
+			$data['error_warning'] = sprintf($this->language->get('error_no_payment'), $this->url->link('information/contact', 'language=' . $this->config->get('config_language')));
 		} else {
 			$data['error_warning'] = '';
 		}
@@ -82,7 +78,7 @@ class ControllerCheckoutPaymentMethod extends Controller {
 		if (isset($this->session->data['payment_methods'])) {
 			$data['payment_methods'] = $this->session->data['payment_methods'];
 		} else {
-			$data['payment_methods'] = array();
+			$data['payment_methods'] = [];
 		}
 
 		if (isset($this->session->data['payment_method']['code'])) {
@@ -97,15 +93,13 @@ class ControllerCheckoutPaymentMethod extends Controller {
 			$data['comment'] = '';
 		}
 
-		$data['scripts'] = $this->document->getScripts();
-
 		if ($this->config->get('config_checkout_id')) {
 			$this->load->model('catalog/information');
 
 			$information_info = $this->model_catalog_information->getInformation($this->config->get('config_checkout_id'));
 
 			if ($information_info) {
-				$data['text_agree'] = sprintf($this->language->get('text_agree'), $this->url->link('information/information/agree', 'information_id=' . $this->config->get('config_checkout_id'), 'SSL'), $information_info['title'], $information_info['title']);
+				$data['text_agree'] = sprintf($this->language->get('text_agree'), $this->url->link('information/information|info', 'language=' . $this->config->get('config_language') . '&information_id=' . $this->config->get('config_checkout_id')), $information_info['title']);
 			} else {
 				$data['text_agree'] = '';
 			}
@@ -119,26 +113,22 @@ class ControllerCheckoutPaymentMethod extends Controller {
 			$data['agree'] = '';
 		}
 
-		if (file_exists(DIR_TEMPLATE . $this->config->get('config_template') . '/template/checkout/payment_method.tpl')) {
-			$this->response->setOutput($this->load->view($this->config->get('config_template') . '/template/checkout/payment_method.tpl', $data));
-		} else {
-			$this->response->setOutput($this->load->view('default/template/checkout/payment_method.tpl', $data));
-		}
+		$this->response->setOutput($this->load->view('checkout/payment_method', $data));
 	}
 
-	public function save() {
+	public function save(): void {
 		$this->load->language('checkout/checkout');
 
-		$json = array();
+		$json = [];
 
 		// Validate if payment address has been set.
 		if (!isset($this->session->data['payment_address'])) {
-			$json['redirect'] = $this->url->link('checkout/checkout', '', 'SSL');
+			$json['redirect'] = $this->url->link('checkout/checkout', 'language=' . $this->config->get('config_language'), true);
 		}
 
 		// Validate cart has products and has stock.
 		if ((!$this->cart->hasProducts() && empty($this->session->data['vouchers'])) || (!$this->cart->hasStock() && !$this->config->get('config_stock_checkout'))) {
-			$json['redirect'] = $this->url->link('checkout/cart');
+			$json['redirect'] = $this->url->link('checkout/cart', 'language=' . $this->config->get('config_language'), true);
 		}
 
 		// Validate minimum quantity requirements.
@@ -154,7 +144,7 @@ class ControllerCheckoutPaymentMethod extends Controller {
 			}
 
 			if ($product['minimum'] > $product_total) {
-				$json['redirect'] = $this->url->link('checkout/cart');
+				$json['redirect'] = $this->url->link('checkout/cart', 'language=' . $this->config->get('config_language'), true);
 
 				break;
 			}
@@ -178,7 +168,6 @@ class ControllerCheckoutPaymentMethod extends Controller {
 
 		if (!$json) {
 			$this->session->data['payment_method'] = $this->session->data['payment_methods'][$this->request->post['payment_method']];
-
 			$this->session->data['comment'] = strip_tags($this->request->post['comment']);
 		}
 

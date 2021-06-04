@@ -1,142 +1,38 @@
 <?php
-class ControllerAccountLogin extends Controller {
-	private $error = array();
-
-	public function index() {
-		$this->load->model('account/customer');
-
-		// Login override for admin users
-		if (!empty($this->request->get['token'])) {
-			$this->event->trigger('pre.customer.login');
-
-			$this->customer->logout();
-			$this->cart->clear();
-
-			unset($this->session->data['wishlist']);
-			unset($this->session->data['payment_address']);
-			unset($this->session->data['payment_method']);
-			unset($this->session->data['payment_methods']);
-			unset($this->session->data['shipping_address']);
-			unset($this->session->data['shipping_method']);
-			unset($this->session->data['shipping_methods']);
-			unset($this->session->data['comment']);
-			unset($this->session->data['order_id']);
-			unset($this->session->data['coupon']);
-			unset($this->session->data['reward']);
-			unset($this->session->data['voucher']);
-			unset($this->session->data['vouchers']);
-
-			$customer_info = $this->model_account_customer->getCustomerByToken($this->request->get['token']);
-
-			if ($customer_info && $this->customer->login($customer_info['email'], '', true)) {
-				// Default Addresses
-				$this->load->model('account/address');
-
-				if ($this->config->get('config_tax_customer') == 'payment') {
-					$this->session->data['payment_address'] = $this->model_account_address->getAddress($this->customer->getAddressId());
-				}
-
-				if ($this->config->get('config_tax_customer') == 'shipping') {
-					$this->session->data['shipping_address'] = $this->model_account_address->getAddress($this->customer->getAddressId());
-				}
-
-				$this->event->trigger('post.customer.login');
-
-				$this->response->redirect($this->url->link('account/account', '', 'SSL'));
-			}
-		}
-
+namespace Opencart\Catalog\Controller\Account;
+class Login extends \Opencart\System\Engine\Controller {
+	public function index(): void {
 		if ($this->customer->isLogged()) {
-			$this->response->redirect($this->url->link('account/account', '', 'SSL'));
+			$this->response->redirect($this->url->link('account/account', 'language=' . $this->config->get('config_language')));
 		}
 
 		$this->load->language('account/login');
 
 		$this->document->setTitle($this->language->get('heading_title'));
 
-		if (($this->request->server['REQUEST_METHOD'] == 'POST') && $this->validate()) {
-			unset($this->session->data['guest']);
+		$data['breadcrumbs'] = [];
 
-			// Default Shipping Address
-			$this->load->model('account/address');
-
-			if ($this->config->get('config_tax_customer') == 'payment') {
-				$this->session->data['payment_address'] = $this->model_account_address->getAddress($this->customer->getAddressId());
-			}
-
-			if ($this->config->get('config_tax_customer') == 'shipping') {
-				$this->session->data['shipping_address'] = $this->model_account_address->getAddress($this->customer->getAddressId());
-			}
-
-			// Add to activity log
-			$this->load->model('account/activity');
-
-			$activity_data = array(
-				'customer_id' => $this->customer->getId(),
-				'name'        => $this->customer->getFirstName() . ' ' . $this->customer->getLastName()
-			);
-
-			$this->model_account_activity->addActivity('login', $activity_data);
-
-			// Added strpos check to pass McAfee PCI compliance test (http://forum.opencart.com/viewtopic.php?f=10&t=12043&p=151494#p151295)
-			if (isset($this->request->post['redirect']) && (strpos($this->request->post['redirect'], $this->config->get('config_url')) !== false || strpos($this->request->post['redirect'], $this->config->get('config_ssl')) !== false)) {
-				$this->response->redirect(str_replace('&amp;', '&', $this->request->post['redirect']));
-			} else {
-				$this->response->redirect($this->url->link('account/account', '', 'SSL'));
-			}
-		}
-
-		$data['breadcrumbs'] = array();
-
-		$data['breadcrumbs'][] = array(
+		$data['breadcrumbs'][] = [
 			'text' => $this->language->get('text_home'),
-			'href' => $this->url->link('common/home')
-		);
+			'href' => $this->url->link('common/home', 'language=' . $this->config->get('config_language'))
+		];
 
-		$data['breadcrumbs'][] = array(
+		$data['breadcrumbs'][] = [
 			'text' => $this->language->get('text_account'),
-			'href' => $this->url->link('account/account', '', 'SSL')
-		);
+			'href' => $this->url->link('account/account', 'language=' . $this->config->get('config_language'))
+		];
 
-		$data['breadcrumbs'][] = array(
+		$data['breadcrumbs'][] = [
 			'text' => $this->language->get('text_login'),
-			'href' => $this->url->link('account/login', '', 'SSL')
-		);
+			'href' => $this->url->link('account/login', 'language=' . $this->config->get('config_language'))
+		];
 
-		$data['heading_title'] = $this->language->get('heading_title');
+		if (isset($this->session->data['error'])) {
+			$data['error_warning'] = $this->session->data['error'];
 
-		$data['text_new_customer'] = $this->language->get('text_new_customer');
-		$data['text_register'] = $this->language->get('text_register');
-		$data['text_register_account'] = $this->language->get('text_register_account');
-		$data['text_returning_customer'] = $this->language->get('text_returning_customer');
-		$data['text_i_am_returning_customer'] = $this->language->get('text_i_am_returning_customer');
-		$data['text_forgotten'] = $this->language->get('text_forgotten');
-
-		$data['entry_email'] = $this->language->get('entry_email');
-		$data['entry_password'] = $this->language->get('entry_password');
-
-		$data['button_continue'] = $this->language->get('button_continue');
-		$data['button_login'] = $this->language->get('button_login');
-
-		if (isset($this->error['warning'])) {
-			$data['error_warning'] = $this->error['warning'];
+			unset($this->session->data['error']);
 		} else {
 			$data['error_warning'] = '';
-		}
-
-		$data['action'] = $this->url->link('account/login', '', 'SSL');
-		$data['register'] = $this->url->link('account/register', '', 'SSL');
-		$data['forgotten'] = $this->url->link('account/forgotten', '', 'SSL');
-
-		// Added strpos check to pass McAfee PCI compliance test (http://forum.opencart.com/viewtopic.php?f=10&t=12043&p=151494#p151295)
-		if (isset($this->request->post['redirect']) && (strpos($this->request->post['redirect'], $this->config->get('config_url')) !== false || strpos($this->request->post['redirect'], $this->config->get('config_ssl')) !== false)) {
-			$data['redirect'] = $this->request->post['redirect'];
-		} elseif (isset($this->session->data['redirect'])) {
-			$data['redirect'] = $this->session->data['redirect'];
-
-			unset($this->session->data['redirect']);
-		} else {
-			$data['redirect'] = '';
 		}
 
 		if (isset($this->session->data['success'])) {
@@ -147,17 +43,20 @@ class ControllerAccountLogin extends Controller {
 			$data['success'] = '';
 		}
 
-		if (isset($this->request->post['email'])) {
-			$data['email'] = $this->request->post['email'];
+		// Added strpos check to pass McAfee PCI compliance test (http://forum.opencart.com/viewtopic.php?f=10&t=12043&p=151494#p151295)
+		if (isset($this->session->data['redirect'])) {
+			$data['redirect'] = $this->session->data['redirect'];
+
+			unset($this->session->data['redirect']);
 		} else {
-			$data['email'] = '';
+			$data['redirect'] = '';
 		}
 
-		if (isset($this->request->post['password'])) {
-			$data['password'] = $this->request->post['password'];
-		} else {
-			$data['password'] = '';
-		}
+		$this->session->data['login_token'] = substr(bin2hex(openssl_random_pseudo_bytes(26)), 0, 26);
+
+		$data['login'] = $this->url->link('account/login|login', 'language=' . $this->config->get('config_language') . '&login_token=' . $this->session->data['login_token']);
+		$data['register'] = $this->url->link('account/register', 'language=' . $this->config->get('config_language'));
+		$data['forgotten'] = $this->url->link('account/forgotten', 'language=' . $this->config->get('config_language'));
 
 		$data['column_left'] = $this->load->controller('common/column_left');
 		$data['column_right'] = $this->load->controller('common/column_right');
@@ -166,38 +65,149 @@ class ControllerAccountLogin extends Controller {
 		$data['footer'] = $this->load->controller('common/footer');
 		$data['header'] = $this->load->controller('common/header');
 
-		if (file_exists(DIR_TEMPLATE . $this->config->get('config_template') . '/template/account/login.tpl')) {
-			$this->response->setOutput($this->load->view($this->config->get('config_template') . '/template/account/login.tpl', $data));
-		} else {
-			$this->response->setOutput($this->load->view('default/template/account/login.tpl', $data));
-		}
+		$this->response->setOutput($this->load->view('account/login', $data));
 	}
 
-	protected function validate() {
-		// Check how many login attempts have been made.
-		$login_info = $this->model_account_customer->getLoginAttempts($this->request->post['email']);
-				
-		if ($login_info && ($login_info['total'] > $this->config->get('config_login_attempts')) && strtotime('-1 hour') < strtotime($login_info['date_modified'])) {
-			$this->error['warning'] = $this->language->get('error_attempts');
+	public function login(): void {
+		$this->load->language('account/login');
+
+		$json = [];
+
+		$keys = [
+			'email',
+			'password'
+		];
+
+		foreach ($keys as $key) {
+			if (!isset($this->request->post[$key])) {
+				$this->request->post[$key] = '';
+			}
 		}
-		
+
+		if (!isset($this->request->get['login_token']) || !isset($this->session->data['login_token']) || ($this->session->data['login_token'] != $this->request->get['login_token'])) {
+		//$json['redirect'] = $this->url->link('account/login', 'language=' . $this->config->get('config_language'), true);
+		}
+
+		// Check how many login attempts have been made.
+		$this->load->model('account/customer');
+
+		$login_info = $this->model_account_customer->getLoginAttempts($this->request->post['email']);
+
+		if ($login_info && ($login_info['total'] >= $this->config->get('config_login_attempts')) && strtotime('-1 hour') < strtotime($login_info['date_modified'])) {
+			$json['error']['warning'] = $this->language->get('error_attempts');
+		}
+
 		// Check if customer has been approved.
 		$customer_info = $this->model_account_customer->getCustomerByEmail($this->request->post['email']);
 
-		if ($customer_info && !$customer_info['approved']) {
-			$this->error['warning'] = $this->language->get('error_approved');
+		if ($customer_info && !$customer_info['status']) {
+			$json['error']['warning'] = $this->language->get('error_approved');
 		}
-		
-		if (!$this->error) {
-			if (!$this->customer->login($this->request->post['email'], $this->request->post['password'])) {
-				$this->error['warning'] = $this->language->get('error_login');
-			
+
+		if (!$json) {
+			if (!$this->customer->login($this->request->post['email'], html_entity_decode($this->request->post['password'], ENT_QUOTES, 'UTF-8'))) {
+				$json['error']['warning'] = $this->language->get('error_login');
+
 				$this->model_account_customer->addLoginAttempt($this->request->post['email']);
 			} else {
 				$this->model_account_customer->deleteLoginAttempts($this->request->post['email']);
-			}			
+			}
+
+			// Unset guest
+			unset($this->session->data['guest']);
+
+			// Default Shipping Address
+			$this->load->model('account/address');
+
+			$address_info = $this->model_account_address->getAddress($this->customer->getAddressId());
+
+			if ($this->config->get('config_tax_customer') && $address_info) {
+				$this->session->data[$this->config->get('config_tax_customer') . '_address'] = $address_info;
+			}
+
+			// Wishlist
+			if (isset($this->session->data['wishlist']) && is_array($this->session->data['wishlist'])) {
+				$this->load->model('account/wishlist');
+
+				foreach ($this->session->data['wishlist'] as $key => $product_id) {
+					$this->model_account_wishlist->addWishlist($product_id);
+
+					unset($this->session->data['wishlist'][$key]);
+				}
+			}
+
+			// Log the IP info
+			$this->model_account_customer->addLogin($this->customer->getId(), $this->request->server['REMOTE_ADDR']);
+
+			// Create customer token
+			$this->session->data['customer_token'] = token(26);
+
+			// Added strpos check to pass McAfee PCI compliance test (http://forum.opencart.com/viewtopic.php?f=10&t=12043&p=151494#p151295)
+			if (isset($this->request->post['redirect']) && (strpos($this->request->post['redirect'], $this->config->get('config_url')) !== false)) {
+				$json['redirect'] = str_replace('&amp;', '&', $this->request->post['redirect']) . '&customer_token=' . $this->session->data['customer_token'];
+			} else {
+				$json['redirect'] = $this->url->link('account/account', 'language=' . $this->config->get('config_language') . '&customer_token=' . $this->session->data['customer_token'], true);
+			}
 		}
-		
-		return !$this->error;
+
+		$this->response->addHeader('Content-Type: application/json');
+		$this->response->setOutput(json_encode($json));
+	}
+
+	public function token(): void {
+		$this->load->language('account/login');
+
+		if (isset($this->request->get['email'])) {
+			$email = $this->request->get['email'];
+		} else {
+			$email = '';
+		}
+
+		if (isset($this->request->get['login_token'])) {
+			$token = $this->request->get['login_token'];
+		} else {
+			$token = '';
+		}
+
+		// Login override for admin users
+		$this->customer->logout();
+		$this->cart->clear();
+
+		unset($this->session->data['order_id']);
+		unset($this->session->data['payment_address']);
+		unset($this->session->data['payment_method']);
+		unset($this->session->data['payment_methods']);
+		unset($this->session->data['shipping_address']);
+		unset($this->session->data['shipping_method']);
+		unset($this->session->data['shipping_methods']);
+		unset($this->session->data['comment']);
+		unset($this->session->data['coupon']);
+		unset($this->session->data['reward']);
+		unset($this->session->data['voucher']);
+		unset($this->session->data['vouchers']);
+
+		$this->load->model('account/customer');
+
+		$customer_info = $this->model_account_customer->getCustomerByEmail($email);
+
+		if ($customer_info && $customer_info['token'] && $customer_info['token'] == $token && $this->customer->login($customer_info['email'], '', true)) {
+			// Default Addresses
+			$this->load->model('account/address');
+			$address_info = $this->model_account_address->getAddress($customer_info['address_id']);
+
+			if ($this->config->get('config_tax_customer') && $address_info) {
+				$this->session->data[$this->config->get('config_tax_customer') . '_address'] = $address_info;
+			}
+
+			$this->model_account_customer->editToken($email, '');
+
+			$this->response->redirect($this->url->link('account/account', 'language=' . $this->config->get('config_language')));
+		} else {
+			$this->session->data['error'] = $this->language->get('error_login');
+
+			$this->model_account_customer->editToken($email, '');
+
+			$this->response->redirect($this->url->link('account/login', 'language=' . $this->config->get('config_language')));
+		}
 	}
 }

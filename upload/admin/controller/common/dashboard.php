@@ -1,51 +1,103 @@
 <?php
-class ControllerCommonDashboard extends Controller {
-	public function index() {
+namespace Opencart\Admin\Controller\Common;
+class Dashboard extends \Opencart\System\Engine\Controller {
+	public function index(): void {
 		$this->load->language('common/dashboard');
 
 		$this->document->setTitle($this->language->get('heading_title'));
 
-		$data['heading_title'] = $this->language->get('heading_title');
+		$data['breadcrumbs'] = [];
 
-		$data['text_sale'] = $this->language->get('text_sale');
-		$data['text_map'] = $this->language->get('text_map');
-		$data['text_activity'] = $this->language->get('text_activity');
-		$data['text_recent'] = $this->language->get('text_recent');
-
-		
-		$data['breadcrumbs'] = array();
-
-		$data['breadcrumbs'][] = array(
+		$data['breadcrumbs'][] = [
 			'text' => $this->language->get('text_home'),
-			'href' => $this->url->link('common/dashboard', 'token=' . $this->session->data['token'], 'SSL')
-		);
+			'href' => $this->url->link('common/dashboard', 'user_token=' . $this->session->data['user_token'])
+		];
 
-		$data['breadcrumbs'][] = array(
+		$data['breadcrumbs'][] = [
 			'text' => $this->language->get('heading_title'),
-			'href' => $this->url->link('common/dashboard', 'token=' . $this->session->data['token'], 'SSL')
-		);
-		
+			'href' => $this->url->link('common/dashboard', 'user_token=' . $this->session->data['user_token'])
+		];
+
 		// Check install directory exists
-		if (is_dir(dirname(DIR_APPLICATION) . '/install')) {
+		if (is_dir(DIR_CATALOG . '../install')) {
 			$data['error_install'] = $this->language->get('error_install');
 		} else {
 			$data['error_install'] = '';
 		}
 
-		$data['token'] = $this->session->data['token'];
+		// Dashboard Extensions
+		$dashboards = [];
+
+		$this->load->model('setting/extension');
+
+		// Get a list of installed modules
+		$extensions = $this->model_setting_extension->getExtensionsByType('dashboard');
+
+		// Add all the modules which have multiple settings for each module
+		foreach ($extensions as $extension) {
+			if ($this->config->get('dashboard_' . $extension['code'] . '_status') && $this->user->hasPermission('access', 'extension/' . $extension['extension'] . '/dashboard/' . $extension['code'])) {
+				$output = $this->load->controller('extension/' . $extension['extension'] . '/dashboard/' . $extension['code'] . '|dashboard');
+
+				//if (!$output instanceof \Exception) {
+				if ($output) {
+					$dashboards[] = [
+						'code'       => $extension['code'],
+						'width'      => $this->config->get('dashboard_' . $extension['code'] . '_width'),
+						'sort_order' => $this->config->get('dashboard_' . $extension['code'] . '_sort_order'),
+						'output'     => $output
+					];
+				}
+			}
+		}
+
+		$sort_order = [];
+
+		foreach ($dashboards as $key => $value) {
+			$sort_order[$key] = $value['sort_order'];
+		}
+
+		array_multisort($sort_order, SORT_ASC, $dashboards);
+
+		// Split the array so the columns width is not more than 12 on each row.
+		$width = 0;
+		$column = [];
+		$data['rows'] = [];
+
+		foreach ($dashboards as $dashboard) {
+			$column[] = $dashboard;
+
+			$width = ($width + $dashboard['width']);
+
+			if ($width >= 12) {
+				$data['rows'][] = $column;
+
+				$width = 0;
+				$column = [];
+			}
+		}
+
+		if (!empty($column)) {
+			$data['rows'][] = $column;
+		}
+
+		if (DIR_STORAGE == DIR_SYSTEM . 'storage/') {
+			$data['security'] = $this->load->controller('common/security');
+		} else {
+			$data['security'] = '';
+		}
+
+		if ($this->user->hasPermission('access', 'common/developer')) {
+			$data['developer_status'] = true;
+		} else {
+			$data['developer_status'] = false;
+		}
+
+		$data['user_token'] = $this->session->data['user_token'];
 
 		$data['header'] = $this->load->controller('common/header');
 		$data['column_left'] = $this->load->controller('common/column_left');
-		$data['order'] = $this->load->controller('dashboard/order');
-		$data['sale'] = $this->load->controller('dashboard/sale');
-		$data['customer'] = $this->load->controller('dashboard/customer');
-		$data['online'] = $this->load->controller('dashboard/online');
-		$data['map'] = $this->load->controller('dashboard/map');
-		$data['chart'] = $this->load->controller('dashboard/chart');
-		$data['activity'] = $this->load->controller('dashboard/activity');
-		$data['recent'] = $this->load->controller('dashboard/recent');
 		$data['footer'] = $this->load->controller('common/footer');
 
-		$this->response->setOutput($this->load->view('common/dashboard.tpl', $data));
+		$this->response->setOutput($this->load->view('common/dashboard', $data));
 	}
 }

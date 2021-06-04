@@ -1,6 +1,7 @@
 <?php
-class ControllerCommonSearch extends Controller {
-	public function index() {
+namespace Opencart\Catalog\Controller\Common;
+class Search extends \Opencart\System\Engine\Controller {
+	public function index(): string {
 		$this->load->language('common/search');
 
 		$data['text_search'] = $this->language->get('text_search');
@@ -11,10 +12,6 @@ class ControllerCommonSearch extends Controller {
 			$data['search'] = '';
 		}
 
-		if (file_exists(DIR_TEMPLATE . $this->config->get('config_template') . '/template/common/search.tpl')) {
-			return $this->load->view($this->config->get('config_template') . '/template/common/search.tpl', $data);
-		} else {
-			return $this->load->view('default/template/common/search.tpl', $data);
-		}
+		return $this->load->view('common/search', $data);
 	}
 }

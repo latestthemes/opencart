@@ -1,9 +1,10 @@
 <?php
-class ControllerApiOrder extends Controller {
-	public function add() {
+namespace Opencart\Catalog\Controller\Api;
+class Order extends \Opencart\System\Engine\Controller {
+	public function add(): void {
 		$this->load->language('api/order');
 
-		$json = array();
+		$json = [];
 
 		if (!isset($this->session->data['api_id'])) {
 			$json['error'] = $this->language->get('error_permission');
@@ -19,6 +20,18 @@ class ControllerApiOrder extends Controller {
 			}
 
 			// Payment Method
+			if (!$json && !empty($this->request->post['payment_method'])) {
+				if (empty($this->session->data['payment_methods'])) {
+					$json['error'] = $this->language->get('error_no_payment');
+				} elseif (!isset($this->session->data['payment_methods'][$this->request->post['payment_method']])) {
+					$json['error'] = $this->language->get('error_payment_method');
+				}
+
+				if (!$json) {
+					$this->session->data['payment_method'] = $this->session->data['payment_methods'][$this->request->post['payment_method']];
+				}
+			}
+
 			if (!isset($this->session->data['payment_method'])) {
 				$json['error'] = $this->language->get('error_payment_method');
 			}
@@ -31,7 +44,24 @@ class ControllerApiOrder extends Controller {
 				}
 
 				// Shipping Method
-				if (!isset($this->request->post['shipping_method'])) {
+				if (!$json && !empty($this->request->post['shipping_method'])) {
+					if (empty($this->session->data['shipping_methods'])) {
+						$json['error'] = $this->language->get('error_no_shipping');
+					} else {
+						$shipping = explode('.', $this->request->post['shipping_method']);
+
+						if (!isset($shipping[0]) || !isset($shipping[1]) || !isset($this->session->data['shipping_methods'][$shipping[0]]['quote'][$shipping[1]])) {
+							$json['error'] = $this->language->get('error_shipping_method');
+						}
+					}
+
+					if (!$json) {
+						$this->session->data['shipping_method'] = $this->session->data['shipping_methods'][$shipping[0]]['quote'][$shipping[1]];
+					}
+				}
+
+				// Shipping Method
+				if (!isset($this->session->data['shipping_method'])) {
 					$json['error'] = $this->language->get('error_shipping_method');
 				}
 			} else {
@@ -65,7 +95,9 @@ class ControllerApiOrder extends Controller {
 			}
 
 			if (!$json) {
-				$order_data = array();
+				$json['success'] = $this->language->get('text_success');
+
+				$order_data = [];
 
 				// Store Details
 				$order_data['invoice_prefix'] = $this->config->get('config_invoice_prefix');
@@ -80,7 +112,6 @@ class ControllerApiOrder extends Controller {
 				$order_data['lastname'] = $this->session->data['customer']['lastname'];
 				$order_data['email'] = $this->session->data['customer']['email'];
 				$order_data['telephone'] = $this->session->data['customer']['telephone'];
-				$order_data['fax'] = $this->session->data['customer']['fax'];
 				$order_data['custom_field'] = $this->session->data['customer']['custom_field'];
 
 				// Payment Details
@@ -96,7 +127,7 @@ class ControllerApiOrder extends Controller {
 				$order_data['payment_country'] = $this->session->data['payment_address']['country'];
 				$order_data['payment_country_id'] = $this->session->data['payment_address']['country_id'];
 				$order_data['payment_address_format'] = $this->session->data['payment_address']['address_format'];
-				$order_data['payment_custom_field'] = $this->session->data['payment_address']['custom_field'];
+				$order_data['payment_custom_field'] = (isset($this->session->data['payment_address']['custom_field']) ? $this->session->data['payment_address']['custom_field'] : []);
 
 				if (isset($this->session->data['payment_method']['title'])) {
 					$order_data['payment_method'] = $this->session->data['payment_method']['title'];
@@ -124,7 +155,7 @@ class ControllerApiOrder extends Controller {
 					$order_data['shipping_country'] = $this->session->data['shipping_address']['country'];
 					$order_data['shipping_country_id'] = $this->session->data['shipping_address']['country_id'];
 					$order_data['shipping_address_format'] = $this->session->data['shipping_address']['address_format'];
-					$order_data['shipping_custom_field'] = $this->session->data['shipping_address']['custom_field'];
+					$order_data['shipping_custom_field'] = (isset($this->session->data['shipping_address']['custom_field']) ? $this->session->data['shipping_address']['custom_field'] : []);
 
 					if (isset($this->session->data['shipping_method']['title'])) {
 						$order_data['shipping_method'] = $this->session->data['shipping_method']['title'];
@@ -150,19 +181,19 @@ class ControllerApiOrder extends Controller {
 					$order_data['shipping_country'] = '';
 					$order_data['shipping_country_id'] = '';
 					$order_data['shipping_address_format'] = '';
-					$order_data['shipping_custom_field'] = array();
+					$order_data['shipping_custom_field'] = [];
 					$order_data['shipping_method'] = '';
 					$order_data['shipping_code'] = '';
 				}
 
 				// Products
-				$order_data['products'] = array();
+				$order_data['products'] = [];
 
 				foreach ($this->cart->getProducts() as $product) {
-					$option_data = array();
+					$option_data = [];
 
 					foreach ($product['option'] as $option) {
-						$option_data[] = array(
+						$option_data[] = [
 							'product_option_id'       => $option['product_option_id'],
 							'product_option_value_id' => $option['product_option_value_id'],
 							'option_id'               => $option['option_id'],
@@ -170,11 +201,12 @@ class ControllerApiOrder extends Controller {
 							'name'                    => $option['name'],
 							'value'                   => $option['value'],
 							'type'                    => $option['type']
-						);
+						];
 					}
 
-					$order_data['products'][] = array(
+					$order_data['products'][] = [
 						'product_id' => $product['product_id'],
+						'master_id'  => $product['master_id'],
 						'name'       => $product['name'],
 						'model'      => $product['model'],
 						'option'     => $option_data,
@@ -185,17 +217,17 @@ class ControllerApiOrder extends Controller {
 						'total'      => $product['total'],
 						'tax'        => $this->tax->getTax($product['price'], $product['tax_class_id']),
 						'reward'     => $product['reward']
-					);
+					];
 				}
 
 				// Gift Voucher
-				$order_data['vouchers'] = array();
+				$order_data['vouchers'] = [];
 
 				if (!empty($this->session->data['vouchers'])) {
 					foreach ($this->session->data['vouchers'] as $voucher) {
-						$order_data['vouchers'][] = array(
+						$order_data['vouchers'][] = [
 							'description'      => $voucher['description'],
-							'code'             => substr(md5(mt_rand()), 0, 10),
+							'code'             => token(10),
 							'to_name'          => $voucher['to_name'],
 							'to_email'         => $voucher['to_email'],
 							'from_name'        => $voucher['from_name'],
@@ -203,42 +235,51 @@ class ControllerApiOrder extends Controller {
 							'voucher_theme_id' => $voucher['voucher_theme_id'],
 							'message'          => $voucher['message'],
 							'amount'           => $voucher['amount']
-						);
+						];
 					}
 				}
 
 				// Order Totals
-				$this->load->model('extension/extension');
+				$this->load->model('setting/extension');
 
-				$order_data['totals'] = array();
-				$total = 0;
+				$totals = [];
 				$taxes = $this->cart->getTaxes();
+				$total = 0;
 
-				$sort_order = array();
+				$sort_order = [];
 
-				$results = $this->model_extension_extension->getExtensions('total');
+				$results = $this->model_setting_extension->getExtensionsByType('total');
 
 				foreach ($results as $key => $value) {
-					$sort_order[$key] = $this->config->get($value['code'] . '_sort_order');
+					$sort_order[$key] = $this->config->get('total_' . $value['code'] . '_sort_order');
 				}
 
 				array_multisort($sort_order, SORT_ASC, $results);
 
 				foreach ($results as $result) {
-					if ($this->config->get($result['code'] . '_status')) {
-						$this->load->model('total/' . $result['code']);
+					if ($this->config->get('total_' . $result['code'] . '_status')) {
+						$this->load->model('extension/' . $result['extension'] . '/total/' . $result['code']);
 
-						$this->{'model_total_' . $result['code']}->getTotal($order_data['totals'], $total, $taxes);
+						// __call can not pass-by-reference so we get PHP to call it as an anonymous function.
+						($this->{'model_extension_' . $result['extension'] . '_total_' . $result['code']}->getTotal)($totals, $taxes, $total);
 					}
 				}
 
-				$sort_order = array();
+				$sort_order = [];
 
-				foreach ($order_data['totals'] as $key => $value) {
+				foreach ($totals as $key => $value) {
 					$sort_order[$key] = $value['sort_order'];
 				}
 
-				array_multisort($sort_order, SORT_ASC, $order_data['totals']);
+				array_multisort($sort_order, SORT_ASC, $totals);
+
+				$total_data = [
+					'totals' => $totals,
+					'taxes'  => $taxes,
+					'total'  => $total
+				];
+
+				$order_data = array_merge($order_data, $total_data);
 
 				if (isset($this->request->post['comment'])) {
 					$order_data['comment'] = $this->request->post['comment'];
@@ -246,38 +287,29 @@ class ControllerApiOrder extends Controller {
 					$order_data['comment'] = '';
 				}
 
-				$order_data['total'] = $total;
+				$order_data['tracking'] = '';
+				$order_data['affiliate_id'] = 0;
+				$order_data['commission'] = 0;
+				$order_data['marketing_id'] = 0;
 
-				if (isset($this->request->post['affiliate_id'])) {
+				if (isset($this->request->post['affiliate_id']) && $this->config->get('config_affiliate_status')) {
 					$subtotal = $this->cart->getSubTotal();
 
 					// Affiliate
-					$this->load->model('affiliate/affiliate');
+					$this->load->model('account/affiliate');
 
-					$affiliate_info = $this->model_affiliate_affiliate->getAffiliate($this->request->post['affiliate_id']);
+					$affiliate_info = $this->model_account_affiliate->getAffiliate($this->request->post['affiliate_id']);
 
 					if ($affiliate_info) {
-						$order_data['affiliate_id'] = $affiliate_info['affiliate_id'];
+						$order_data['affiliate_id'] = $affiliate_info['customer_id'];
 						$order_data['commission'] = ($subtotal / 100) * $affiliate_info['commission'];
-					} else {
-						$order_data['affiliate_id'] = 0;
-						$order_data['commission'] = 0;
 					}
-
-					// Marketing
-					$order_data['marketing_id'] = 0;
-					$order_data['tracking'] = '';
-				} else {
-					$order_data['affiliate_id'] = 0;
-					$order_data['commission'] = 0;
-					$order_data['marketing_id'] = 0;
-					$order_data['tracking'] = '';
 				}
 
 				$order_data['language_id'] = $this->config->get('config_language_id');
-				$order_data['currency_id'] = $this->currency->getId();
-				$order_data['currency_code'] = $this->currency->getCode();
-				$order_data['currency_value'] = $this->currency->getValue($this->currency->getCode());
+				$order_data['currency_id'] = $this->currency->getId($this->session->data['currency']);
+				$order_data['currency_code'] = $this->session->data['currency'];
+				$order_data['currency_value'] = $this->currency->getValue($this->session->data['currency']);
 				$order_data['ip'] = $this->request->server['REMOTE_ADDR'];
 
 				if (!empty($this->request->server['HTTP_X_FORWARDED_FOR'])) {
@@ -299,21 +331,22 @@ class ControllerApiOrder extends Controller {
 				} else {
 					$order_data['accept_language'] = '';
 				}
-				
+
 				$this->load->model('checkout/order');
-	
+
 				$json['order_id'] = $this->model_checkout_order->addOrder($order_data);
-	
+
 				// Set the order history
 				if (isset($this->request->post['order_status_id'])) {
 					$order_status_id = $this->request->post['order_status_id'];
 				} else {
 					$order_status_id = $this->config->get('config_order_status_id');
 				}
-	
-				$this->model_checkout_order->addOrderHistory($json['order_id'], $order_status_id);
-	
-				$json['success'] = $this->language->get('text_success');				
+
+				$this->model_checkout_order->addHistory($json['order_id'], $order_status_id);
+
+				// clear cart since the order has already been successfully stored.
+				$this->cart->clear();
 			}
 		}
 
@@ -321,10 +354,10 @@ class ControllerApiOrder extends Controller {
 		$this->response->setOutput(json_encode($json));
 	}
 
-	public function edit() {
+	public function edit(): void {
 		$this->load->language('api/order');
 
-		$json = array();
+		$json = [];
 
 		if (!isset($this->session->data['api_id'])) {
 			$json['error'] = $this->language->get('error_permission');
@@ -332,7 +365,7 @@ class ControllerApiOrder extends Controller {
 			$this->load->model('checkout/order');
 
 			if (isset($this->request->get['order_id'])) {
-				$order_id = $this->request->get['order_id'];
+				$order_id = (int)$this->request->get['order_id'];
 			} else {
 				$order_id = 0;
 			}
@@ -351,6 +384,18 @@ class ControllerApiOrder extends Controller {
 				}
 
 				// Payment Method
+				if (!$json && !empty($this->request->post['payment_method'])) {
+					if (empty($this->session->data['payment_methods'])) {
+						$json['error'] = $this->language->get('error_no_payment');
+					} elseif (!isset($this->session->data['payment_methods'][$this->request->post['payment_method']])) {
+						$json['error'] = $this->language->get('error_payment_method');
+					}
+
+					if (!$json) {
+						$this->session->data['payment_method'] = $this->session->data['payment_methods'][$this->request->post['payment_method']];
+					}
+				}
+
 				if (!isset($this->session->data['payment_method'])) {
 					$json['error'] = $this->language->get('error_payment_method');
 				}
@@ -363,7 +408,23 @@ class ControllerApiOrder extends Controller {
 					}
 
 					// Shipping Method
-					if (!isset($this->request->post['shipping_method'])) {
+					if (!$json && !empty($this->request->post['shipping_method'])) {
+						if (empty($this->session->data['shipping_methods'])) {
+							$json['error'] = $this->language->get('error_no_shipping');
+						} else {
+							$shipping = explode('.', $this->request->post['shipping_method']);
+
+							if (!isset($shipping[0]) || !isset($shipping[1]) || !isset($this->session->data['shipping_methods'][$shipping[0]]['quote'][$shipping[1]])) {
+								$json['error'] = $this->language->get('error_shipping_method');
+							}
+						}
+
+						if (!$json) {
+							$this->session->data['shipping_method'] = $this->session->data['shipping_methods'][$shipping[0]]['quote'][$shipping[1]];
+						}
+					}
+
+					if (!isset($this->session->data['shipping_method'])) {
 						$json['error'] = $this->language->get('error_shipping_method');
 					}
 				} else {
@@ -397,7 +458,9 @@ class ControllerApiOrder extends Controller {
 				}
 
 				if (!$json) {
-					$order_data = array();
+					$json['success'] = $this->language->get('text_success');
+
+					$order_data = [];
 
 					// Store Details
 					$order_data['invoice_prefix'] = $this->config->get('config_invoice_prefix');
@@ -412,7 +475,6 @@ class ControllerApiOrder extends Controller {
 					$order_data['lastname'] = $this->session->data['customer']['lastname'];
 					$order_data['email'] = $this->session->data['customer']['email'];
 					$order_data['telephone'] = $this->session->data['customer']['telephone'];
-					$order_data['fax'] = $this->session->data['customer']['fax'];
 					$order_data['custom_field'] = $this->session->data['customer']['custom_field'];
 
 					// Payment Details
@@ -482,19 +544,19 @@ class ControllerApiOrder extends Controller {
 						$order_data['shipping_country'] = '';
 						$order_data['shipping_country_id'] = '';
 						$order_data['shipping_address_format'] = '';
-						$order_data['shipping_custom_field'] = array();
+						$order_data['shipping_custom_field'] = [];
 						$order_data['shipping_method'] = '';
 						$order_data['shipping_code'] = '';
 					}
 
 					// Products
-					$order_data['products'] = array();
+					$order_data['products'] = [];
 
 					foreach ($this->cart->getProducts() as $product) {
-						$option_data = array();
+						$option_data = [];
 
 						foreach ($product['option'] as $option) {
-							$option_data[] = array(
+							$option_data[] = [
 								'product_option_id'       => $option['product_option_id'],
 								'product_option_value_id' => $option['product_option_value_id'],
 								'option_id'               => $option['option_id'],
@@ -502,11 +564,12 @@ class ControllerApiOrder extends Controller {
 								'name'                    => $option['name'],
 								'value'                   => $option['value'],
 								'type'                    => $option['type']
-							);
+							];
 						}
 
-						$order_data['products'][] = array(
+						$order_data['products'][] = [
 							'product_id' => $product['product_id'],
+							'master_id'  => $product['master_id'],
 							'name'       => $product['name'],
 							'model'      => $product['model'],
 							'option'     => $option_data,
@@ -517,17 +580,17 @@ class ControllerApiOrder extends Controller {
 							'total'      => $product['total'],
 							'tax'        => $this->tax->getTax($product['price'], $product['tax_class_id']),
 							'reward'     => $product['reward']
-						);
+						];
 					}
 
 					// Gift Voucher
-					$order_data['vouchers'] = array();
+					$order_data['vouchers'] = [];
 
 					if (!empty($this->session->data['vouchers'])) {
 						foreach ($this->session->data['vouchers'] as $voucher) {
-							$order_data['vouchers'][] = array(
+							$order_data['vouchers'][] = [
 								'description'      => $voucher['description'],
-								'code'             => substr(md5(mt_rand()), 0, 10),
+								'code'             => token(10),
 								'to_name'          => $voucher['to_name'],
 								'to_email'         => $voucher['to_email'],
 								'from_name'        => $voucher['from_name'],
@@ -535,42 +598,51 @@ class ControllerApiOrder extends Controller {
 								'voucher_theme_id' => $voucher['voucher_theme_id'],
 								'message'          => $voucher['message'],
 								'amount'           => $voucher['amount']
-							);
+							];
 						}
 					}
 
 					// Order Totals
-					$this->load->model('extension/extension');
+					$this->load->model('setting/extension');
 
-					$order_data['totals'] = array();
-					$total = 0;
+					$totals = [];
 					$taxes = $this->cart->getTaxes();
+					$total = 0;
 
-					$sort_order = array();
+					$sort_order = [];
 
-					$results = $this->model_extension_extension->getExtensions('total');
+					$results = $this->model_setting_extension->getExtensionsByType('total');
 
 					foreach ($results as $key => $value) {
-						$sort_order[$key] = $this->config->get($value['code'] . '_sort_order');
+						$sort_order[$key] = $this->config->get('total_' . $value['code'] . '_sort_order');
 					}
 
 					array_multisort($sort_order, SORT_ASC, $results);
 
 					foreach ($results as $result) {
-						if ($this->config->get($result['code'] . '_status')) {
-							$this->load->model('total/' . $result['code']);
+						if ($this->config->get('total_' . $result['code'] . '_status')) {
+							$this->load->model('extension/' . $result['extension'] . '/total/' . $result['code']);
 
-							$this->{'model_total_' . $result['code']}->getTotal($order_data['totals'], $total, $taxes);
+							// __call can not pass-by-reference so we get PHP to call it as an anonymous function.
+							($this->{'model_extension_' . $result['extension'] . '_total_' . $result['code']}->getTotal)($totals, $taxes, $total);
 						}
 					}
 
-					$sort_order = array();
+					$sort_order = [];
 
-					foreach ($order_data['totals'] as $key => $value) {
+					foreach ($totals as $key => $value) {
 						$sort_order[$key] = $value['sort_order'];
 					}
 
-					array_multisort($sort_order, SORT_ASC, $order_data['totals']);
+					array_multisort($sort_order, SORT_ASC, $totals);
+
+					$total_data = [
+						'totals' => $totals,
+						'taxes'  => $taxes,
+						'total'  => $total
+					];
+
+					$order_data = array_merge($order_data, $total_data);
 
 					if (isset($this->request->post['comment'])) {
 						$order_data['comment'] = $this->request->post['comment'];
@@ -578,26 +650,21 @@ class ControllerApiOrder extends Controller {
 						$order_data['comment'] = '';
 					}
 
-					$order_data['total'] = $total;
+					$order_data['affiliate_id'] = 0;
+					$order_data['commission'] = 0;
 
-					if (isset($this->request->post['affiliate_id'])) {
+					if (isset($this->request->post['affiliate_id']) && $this->config->get('config_affiliate_status')) {
 						$subtotal = $this->cart->getSubTotal();
 
 						// Affiliate
-						$this->load->model('affiliate/affiliate');
+						$this->load->model('account/affiliate');
 
-						$affiliate_info = $this->model_affiliate_affiliate->getAffiliate($this->request->post['affiliate_id']);
+						$affiliate_info = $this->model_account_affiliate->getAffiliate($this->request->post['affiliate_id']);
 
 						if ($affiliate_info) {
-							$order_data['affiliate_id'] = $affiliate_info['affiliate_id'];
+							$order_data['affiliate_id'] = $affiliate_info['customer_id'];
 							$order_data['commission'] = ($subtotal / 100) * $affiliate_info['commission'];
-						} else {
-							$order_data['affiliate_id'] = 0;
-							$order_data['commission'] = 0;
 						}
-					} else {
-						$order_data['affiliate_id'] = 0;
-						$order_data['commission'] = 0;
 					}
 
 					$this->model_checkout_order->editOrder($order_id, $order_data);
@@ -609,9 +676,12 @@ class ControllerApiOrder extends Controller {
 						$order_status_id = $this->config->get('config_order_status_id');
 					}
 
-					$this->model_checkout_order->addOrderHistory($order_id, $order_status_id);
+					$this->model_checkout_order->addHistory($order_id, $order_status_id);
 
-					$json['success'] = $this->language->get('text_success');
+					// When order editing is completed, delete added order status for Void the order first.
+					if ($order_status_id) {
+						$this->db->query("DELETE FROM `" . DB_PREFIX . "order_history` WHERE `order_id` = '" . (int)$order_id . "' AND `order_status_id` = '0'");
+					}
 				}
 			} else {
 				$json['error'] = $this->language->get('error_not_found');
@@ -622,10 +692,10 @@ class ControllerApiOrder extends Controller {
 		$this->response->setOutput(json_encode($json));
 	}
 
-	public function delete() {
+	public function delete(): void {
 		$this->load->language('api/order');
 
-		$json = array();
+		$json = [];
 
 		if (!isset($this->session->data['api_id'])) {
 			$json['error'] = $this->language->get('error_permission');
@@ -633,7 +703,7 @@ class ControllerApiOrder extends Controller {
 			$this->load->model('checkout/order');
 
 			if (isset($this->request->get['order_id'])) {
-				$order_id = $this->request->get['order_id'];
+				$order_id = (int)$this->request->get['order_id'];
 			} else {
 				$order_id = 0;
 			}
@@ -649,27 +719,56 @@ class ControllerApiOrder extends Controller {
 			}
 		}
 
-		print_r($json);
-
-		//$this->response->addHeader('Content-Type: application/json');
-		//$this->response->setOutput(json_encode($json));
+		$this->response->addHeader('Content-Type: application/json');
+		$this->response->setOutput(json_encode($json));
 	}
 
-	public function history() {
+	public function info(): void {
 		$this->load->language('api/order');
 
-		$json = array();
+		$json = [];
+
+		if (!isset($this->session->data['api_id'])) {
+			$json['error'] = $this->language->get('error_permission');
+		} else {
+			$this->load->model('checkout/order');
+
+			if (isset($this->request->get['order_id'])) {
+				$order_id = (int)$this->request->get['order_id'];
+			} else {
+				$order_id = 0;
+			}
+
+			$order_info = $this->model_checkout_order->getOrder($order_id);
+
+			if ($order_info) {
+				$json['order'] = $order_info;
+
+				$json['success'] = $this->language->get('text_success');
+			} else {
+				$json['error'] = $this->language->get('error_not_found');
+			}
+		}
+
+		$this->response->addHeader('Content-Type: application/json');
+		$this->response->setOutput(json_encode($json));
+	}
+
+	public function history(): void {
+		$this->load->language('api/order');
+
+		$json = [];
 
 		if (!isset($this->session->data['api_id'])) {
 			$json['error'] = $this->language->get('error_permission');
 		} else {
 			// Add keys for missing post vars
-			$keys = array(
+			$keys = [
 				'order_status_id',
 				'notify',
-				'append',
+				'override',
 				'comment'
-			);
+			];
 
 			foreach ($keys as $key) {
 				if (!isset($this->request->post[$key])) {
@@ -680,7 +779,7 @@ class ControllerApiOrder extends Controller {
 			$this->load->model('checkout/order');
 
 			if (isset($this->request->get['order_id'])) {
-				$order_id = $this->request->get['order_id'];
+				$order_id = (int)$this->request->get['order_id'];
 			} else {
 				$order_id = 0;
 			}
@@ -688,7 +787,7 @@ class ControllerApiOrder extends Controller {
 			$order_info = $this->model_checkout_order->getOrder($order_id);
 
 			if ($order_info) {
-				$this->model_checkout_order->addOrderHistory($order_id, $this->request->post['order_status_id'], $this->request->post['comment'], $this->request->post['notify']);
+				$this->model_checkout_order->addHistory($order_id, $this->request->post['order_status_id'], $this->request->post['comment'], $this->request->post['notify'], $this->request->post['override']);
 
 				$json['success'] = $this->language->get('text_success');
 			} else {

@@ -1,73 +1,79 @@
 <?php
-final class Action {
-	private $file;
-	private $class;
-	private $method;
-	private $args = array();
+/**
+ * @package     OpenCart
+ * @author      Daniel Kerr
+ * @copyright   Copyright (c) 2005 - 2017, OpenCart, Ltd. (https://www.opencart.com/)
+ * @license     https://opensource.org/licenses/GPL-3.0
+ * @link        https://www.opencart.com
+ */
 
-	public function __construct($route, $args = array()) {
-		$path = '';
+/**
+ * Action class
+ */
+namespace Opencart\System\Engine;
+class Action {
+	private string $route;
+	private string $class;
+	private string $method;
 
-		// Break apart the route
-		$parts = explode('/', str_replace('../', '', (string)$route));
+	/**
+	 * Constructor
+	 *
+	 * @param    string $route
+	 */
+	public function __construct(string $route) {
+		$this->route = preg_replace('/[^a-zA-Z0-9_|\/]/', '', $route);
 
-		foreach ($parts as $part) {
-			$path .= $part;
+		$pos = strrpos($this->route, '|');
 
-			if (is_dir(DIR_APPLICATION . 'controller/' . $path)) {
-				$path .= '/';
-
-				array_shift($parts);
-
-				continue;
-			}
-
-			$file = DIR_APPLICATION . 'controller/' . str_replace(array('../', '..\\', '..'), '', $path) . '.php';
-
-			if (is_file($file)) {
-				$this->file = $file;
-
-				$this->class = 'Controller' . preg_replace('/[^a-zA-Z0-9]/', '', $path);
-
-				array_shift($parts);
-
-				break;
-			}
-		}
-
-		if ($args) {
-			$this->args = $args;
-		}
-
-		$method = array_shift($parts);
-
-		if ($method) {
-			$this->method = $method;
-		} else {
+		if ($pos === false) {
+			$this->class  = 'Controller\\' . str_replace(['_', '/'], ['', '\\'], ucwords($this->route, '_/'));
 			$this->method = 'index';
+		} else {
+			$this->class  = 'Controller\\' . str_replace(['_', '/'], ['', '\\'], ucwords(substr($this->route, 0, $pos), '_/'));
+			$this->method = substr($this->route, $pos + 1);
 		}
 	}
 
-	public function execute($registry) {
+	/**
+	 * Identify Action
+	 *
+	 * @return    string
+	 *
+	 */
+	public function getId(): string {
+		return $this->route;
+	}
+
+	/**
+	 *
+	 * Execute Action
+	 *
+	 * @param    object $registry
+	 * @param    array $args
+	 *
+	 * @return	mixed
+	 */
+	public function execute(\Opencart\System\Engine\Registry $registry, array &$args = []): mixed {
 		// Stop any magical methods being called
 		if (substr($this->method, 0, 2) == '__') {
-			return false;
+			return new \Exception('Error: Calls to magic methods are not allowed!');
 		}
 
-		if (is_file($this->file)) {
-			include_once($this->file);
+		// Get the current namespace being used by the config
+		$class = 'Opencart\\' . $registry->get('config')->get('application') . '\\' . $this->class;
 
-			$class = $this->class;
-
+		// Initialize the class
+		if (class_exists($class)) {
 			$controller = new $class($registry);
-
-			if (is_callable(array($controller, $this->method))) {
-				return call_user_func(array($controller, $this->method), $this->args);
-			} else {
-				return false;
-			}
 		} else {
-			return false;
+			return new \Exception('Error: Could not call route ' . $this->route . '!');
+		}
+
+		if (is_callable([$controller, $this->method])) {
+			return call_user_func_array([$controller, $this->method], $args);
+		} else {
+			return new \Exception('Error: Could not call route ' . $this->route . '!');
 		}
 	}
 }
